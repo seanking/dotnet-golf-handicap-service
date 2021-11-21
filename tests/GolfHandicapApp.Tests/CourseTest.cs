@@ -1,5 +1,5 @@
+using FluentAssertions;
 using NUnit.Framework;
-using static AssertNet.Assertions;
 
 namespace Course
 {
@@ -12,7 +12,7 @@ namespace Course
             var course = new Course();
 
             // Then
-            AssertThat(course.Id).IsNotNull();
+            course.Id.Should().NotBeEmpty();
         }
     }
 }
