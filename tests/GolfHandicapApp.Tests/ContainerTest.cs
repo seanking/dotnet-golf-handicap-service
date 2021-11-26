@@ -81,6 +81,50 @@ namespace Course
             okResult.StatusCode.Should().Be(200);
             okResult.Value.Should().BeEquivalentTo(expectedCourse);
         }
+        
+        [Test]
+        public async Task ShouldFindAllCourses()
+        {
+            // Given
+            var course1 = BuildCourse();
+            var course2 = BuildCourse();
+            
+            await _controller.Post(course1);
+            await _controller.Post(course2);
+
+            // When 
+            var result = await _controller.Search("test");
+
+            // Then
+            result.Result.Should().BeOfType(typeof(OkObjectResult));
+
+            var okResult = result.Result as OkObjectResult;
+            okResult.StatusCode.Should().Be(200);
+            okResult.Value.Should().Equals(new List<Course> {course1, course2});
+        }
+        
+        [Test]
+        public async Task ShouldFindCourse()
+        {
+            // Given
+            var course1 = BuildCourse();
+            course1.Name = "abc";
+            var course2 = BuildCourse();
+            course2.Name = "xyz";
+            
+            await _controller.Post(course1);
+            await _controller.Post(course2);
+
+            // When 
+            var result = await _controller.Search("ab");
+
+            // Then
+            result.Result.Should().BeOfType(typeof(OkObjectResult));
+
+            var okResult = result.Result as OkObjectResult;
+            okResult.StatusCode.Should().Be(200);
+            okResult.Value.Should().Equals(new List<Course> {course1});
+        }
 
         private static Course BuildCourse()
         {
