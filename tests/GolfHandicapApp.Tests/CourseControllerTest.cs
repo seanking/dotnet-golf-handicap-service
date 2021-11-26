@@ -1,49 +1,25 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
-using DotNet.Testcontainers.Containers.Builders;
-using DotNet.Testcontainers.Containers.Modules;
-using DotNet.Testcontainers.Containers.WaitStrategies;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc;
-using Nest;
+using Moq;
 using NUnit.Framework;
 using static RandomStringUtils.RandomStringUtils;
 
 namespace Course
 {
-    public class ContainerTest
+    public class CourseControllerTest
     {
-        private TestcontainersContainer _testContainer;
         private CourseController _controller;
-        private int _privateElasticsearchPort = 9200;
-
-        [OneTimeSetUp]
-        public async Task init()
-        {
-            var testContainersBuilder = new TestcontainersBuilder<TestcontainersContainer>()
-                .WithImage("docker.elastic.co/elasticsearch/elasticsearch:7.15.1")
-                .WithPortBinding(_privateElasticsearchPort, true)
-                .WithEnvironment("discovery.type", "single-node")
-                .WithWaitStrategy(Wait.ForUnixContainer().UntilPortIsAvailable(_privateElasticsearchPort));
-
-            _testContainer = testContainersBuilder.Build();
-            await _testContainer.StartAsync();
-        }
-
-        [OneTimeTearDown]
-        public async Task tearDown()
-        {
-            await _testContainer.StopAsync();
-            await _testContainer.DisposeAsync();
-        }
+        private Mock<ICourseRepository> _mockRepository;
 
         [SetUp]
         public void setupController()
         {
-            var mappedPublicPort = _testContainer.GetMappedPublicPort(_privateElasticsearchPort);
-            var client = BuildClient(mappedPublicPort);
-            _controller = new CourseController(client);
+            _mockRepository = new Mock<ICourseRepository>();
+            _controller = new CourseController(_mockRepository.Object);
         }
 
         [Test]
@@ -51,6 +27,8 @@ namespace Course
         {
             // Given
             var course = BuildCourse();
+            _mockRepository.Setup(r => r.Save(It.IsAny<Course>()))
+                .ReturnsAsync(course.Id.ToString());
 
             // When 
             var result = await _controller.Post(course);
@@ -61,6 +39,22 @@ namespace Course
             var okResult = result.Result as OkObjectResult;
             okResult.StatusCode.Should().Be(200);
             okResult.Value.Should().Be(course.Id.ToString());
+            _mockRepository.Verify(r => r.Save(course), Times.Once);
+        }
+
+        [Test]
+        public async Task ShouldNotAddCourse()
+        {
+            // Given
+            var course = BuildCourse();
+            _mockRepository.Setup(r => r.Save(It.IsAny<Course>()));
+
+            // When 
+            var result = await _controller.Post(course);
+
+            // Then
+            result.Result.Should().BeOfType(typeof(NotFoundResult));
+            _mockRepository.Verify(r => r.Save(course), Times.Once);
         }
 
         [Test]
@@ -68,11 +62,11 @@ namespace Course
         {
             // Given
             var expectedCourse = BuildCourse();
-            var postResult = await _controller.Post(expectedCourse);
-            var id = (postResult.Result as OkObjectResult).Value;
+            _mockRepository.Setup(r => r.FindById(It.IsAny<string>()))
+                .ReturnsAsync(expectedCourse);
 
             // When 
-            var result = await _controller.Get(id.ToString());
+            var result = await _controller.Get(expectedCourse.Id.ToString());
 
             // Then
             result.Result.Should().BeOfType(typeof(OkObjectResult));
@@ -80,50 +74,54 @@ namespace Course
             var okResult = result.Result as OkObjectResult;
             okResult.StatusCode.Should().Be(200);
             okResult.Value.Should().BeEquivalentTo(expectedCourse);
+
+            _mockRepository.Verify(r => r.Save(expectedCourse), Times.Once);
         }
-        
+
         [Test]
         public async Task ShouldFindAllCourses()
         {
             // Given
             var course1 = BuildCourse();
             var course2 = BuildCourse();
-            
-            await _controller.Post(course1);
-            await _controller.Post(course2);
+            var expectedCourses = new ReadOnlyCollection<Course>(new List<Course>() {course1, course2});
 
+            _mockRepository.Setup(r => r.FindAll())
+                .ReturnsAsync(expectedCourses);
             // When 
-            var result = await _controller.Search("test");
+            var result = await _controller.Search(String.Empty);
 
             // Then
             result.Result.Should().BeOfType(typeof(OkObjectResult));
 
             var okResult = result.Result as OkObjectResult;
             okResult.StatusCode.Should().Be(200);
-            okResult.Value.Should().Equals(new List<Course> {course1, course2});
+            okResult.Value.Should().Equals(expectedCourses);
+
+            _mockRepository.Verify(r => r.FindAll(), Times.Once);
         }
-        
+
         [Test]
-        public async Task ShouldFindCourse()
+        public async Task ShouldFindCourseByName()
         {
             // Given
-            var course1 = BuildCourse();
-            course1.Name = "abc";
-            var course2 = BuildCourse();
-            course2.Name = "xyz";
-            
-            await _controller.Post(course1);
-            await _controller.Post(course2);
+            var course = BuildCourse();
+            var expectedCourses = new ReadOnlyCollection<Course>(new List<Course>() {course});
+
+            _mockRepository.Setup(r => r.FindByName(It.IsAny<string>()))
+                .ReturnsAsync(expectedCourses);
 
             // When 
-            var result = await _controller.Search("ab");
+            var result = await _controller.Search(course.Name);
 
             // Then
             result.Result.Should().BeOfType(typeof(OkObjectResult));
 
             var okResult = result.Result as OkObjectResult;
             okResult.StatusCode.Should().Be(200);
-            okResult.Value.Should().Equals(new List<Course> {course1});
+            okResult.Value.Should().Equals(expectedCourses);
+
+            _mockRepository.Verify(r => r.FindByName(course.Name), Times.Once);
         }
 
         private static Course BuildCourse()
@@ -141,13 +139,6 @@ namespace Course
                     }
                 }
             };
-        }
-
-        private static ElasticClient BuildClient(ushort mappedPublicPort)
-        {
-            var node = new Uri($"http://localhost:{mappedPublicPort}");
-            var settings = new ConnectionSettings(node);
-            return new ElasticClient(settings);
         }
     }
 }

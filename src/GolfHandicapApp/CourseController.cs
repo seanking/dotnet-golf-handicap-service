@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Mvc;
 using Nest;
@@ -8,20 +9,21 @@ namespace Course
     [Route("api/[controller]")]
     public class CourseController : Controller
     {
-        private readonly IElasticClient _client;
+        private readonly ICourseRepository _courseRepository;
 
-        public CourseController(IElasticClient client)
+        public CourseController(ICourseRepository courseRepository)
         {
-            _client = client;
+            _courseRepository = courseRepository;
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<string>> Get(string id)
         {
-            var response = await _client.GetAsync<Course>(id, idx => idx.Index("course"));
-            if (response.Found)
+            var response = await _courseRepository.FindById(id);
+            
+            if (response != null)
             {
-                return Ok(response.Source);
+                return Ok(response);
             }
 
             return NotFound();
@@ -30,36 +32,30 @@ namespace Course
         [HttpPost]
         public async Task<ActionResult<string>> Post([FromBody] Course course)
         {
-            var response = await _client.IndexAsync(course, idx => idx.Index("course"));
-            if (response.IsValid)
+            var id = await _courseRepository.Save(course);
+
+            if (!IsNullOrEmpty(id))
             {
-                return Ok(response.Id);
+                return Ok(id);
             }
 
             return NotFound();
         }
 
         [HttpGet("search")]
-        public async Task<ActionResult<Course>> Search([FromQuery]string term)
+        public async Task<ActionResult<Course>> Search([FromQuery] string name)
         {
-            ISearchResponse<Course> response = null;
-            if (IsNullOrEmpty(term))
+            IReadOnlyCollection<Course> courses;
+            if (IsNullOrEmpty(name))
             {
-                response = await _client.SearchAsync<Course>(s => s.Index("course").MatchAll());
+                courses = await _courseRepository.FindAll();
             }
             else
             {
-                response = await _client.SearchAsync<Course>(s => 
-                    s.Index("course").Query(q => 
-                        q.Match(m => m.Field("name").Query(term))));
+                courses = await _courseRepository.FindByName(name);
             }
 
-            if (response.Total == -1)
-            {
-                return StatusCode(500);
-            }
-
-            return Ok(response.Documents);
+            return Ok(courses);
         }
     }
 }
