@@ -42,17 +42,24 @@ namespace Course
         [HttpGet("search")]
         public async Task<ActionResult<Course>> Search([FromQuery]string term)
         {
+            ISearchResponse<Course> response = null;
             if (IsNullOrEmpty(term))
             {
-                var matchAllResponse = await _client.SearchAsync<Course>(s => s.Index("course").MatchAll());
-                return Ok(matchAllResponse.Documents);
+                response = await _client.SearchAsync<Course>(s => s.Index("course").MatchAll());
             }
-
-            var queryResponse =
-                await _client.SearchAsync<Course>(s => 
+            else
+            {
+                response = await _client.SearchAsync<Course>(s => 
                     s.Index("course").Query(q => 
                         q.Match(m => m.Field("name").Query(term))));
-            return Ok(queryResponse.Documents);
+            }
+
+            if (response.Total == -1)
+            {
+                return StatusCode(500);
+            }
+
+            return Ok(response.Documents);
         }
     }
 }
